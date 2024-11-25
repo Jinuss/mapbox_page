@@ -4,6 +4,7 @@ import {
   qiankunWindow,
   QiankunProps,
 } from "vite-plugin-qiankun/dist/helper";
+import "./reset.css"
 import "./style.css";
 import App from "./App.vue";
 
