@@ -1,16 +1,21 @@
 import { createApp } from "vue";
+import { createPinia } from "pinia";
 import {
   renderWithQiankun,
   qiankunWindow,
   QiankunProps,
 } from "vite-plugin-qiankun/dist/helper";
-import "./reset.css"
+import "./reset.css";
 import "./style.css";
 import App from "./App.vue";
 
+const pinia = createPinia();
+
 const app = createApp(App);
 
-let root:any = null;
+app.use(pinia);
+
+let root: any = null;
 
 function render(props: QiankunProps) {
   const { container } = props;
@@ -18,7 +23,7 @@ function render(props: QiankunProps) {
     ? container.querySelector("#app")
     : document.getElementById("app");
   console.log("🚀 ~ render ~ node:", node);
-  root=app.mount(node)
+  root = app.mount(node);
   return root;
 }
 

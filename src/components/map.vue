@@ -3,14 +3,24 @@ import { onMounted } from "vue";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox-controls/zoom/src/index.css";
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import MapboxLanguage from "@mapbox/mapbox-gl-language";
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
+import { useMapStore } from "../store";
+import brp from "./brp.vue";
+
+// mapboxgl.accessToken =
+//   "pk.eyJ1IjoiamFrZWpvdWUiLCJhIjoiY2tyZnNlM2d1MG5tMDJ1cW5jaXN2MW02NyJ9.H6m2TZiZaAwet6HXv1TMvQ";
+
 mapboxgl.accessToken =
-  "pk.eyJ1IjoiamFrZWpvdWUiLCJhIjoiY2tyZnNlM2d1MG5tMDJ1cW5jaXN2MW02NyJ9.H6m2TZiZaAwet6HXv1TMvQ";
+  "pk.eyJ1IjoibG9uZ2xvbmd3YXl0b2dvIiwiYSI6ImNqdnZ6OWV6cTFnY240NG9nbmxnc2k5dTkifQ.hsbNl4QUNyn46nfbztiFpw";
+const mapStore = useMapStore();
 
 const initMap = () => {
-  const map = new mapboxgl.Map({
+  const map: null | mapboxgl.Map = new mapboxgl.Map({
     container: "map",
-    style: "mapbox://styles/mapbox/streets-v12",
+    style: "mapbox://styles/mapbox/light-v10",
+    // style: 'mapbox://styles/mapbox/streets-v11',
     center: [114.3055, 30.5928],
     zoom: 12,
     projection: "globe",
@@ -25,25 +35,35 @@ const initMap = () => {
       defaultLanguage: "zh-Hans",
     })
   );
-  // Set marker options.
-  const marker = new mapboxgl.Marker({
-    color: "#FFFFFF",
-    draggable: true,
-  })
-    .setLngLat([114.3055, 30.5928])
-    .addTo(map);
-
-  const marker2 = new mapboxgl.Marker()
-    .setLngLat([114.3055, 31.5928])
-    .setPopup(new mapboxgl.Popup().setHTML("<h1>Hello World!</h1>")) // add popup
-    .addTo(map);
-  //   map.addControl(new ZoomControl(), 'top-left');
 
   map.addControl(new mapboxgl.FullscreenControl());
 
   map.addControl(new mapboxgl.NavigationControl(), "top-left");
 
   map.addControl(new mapboxgl.ScaleControl());
+
+  map.addControl(
+    new mapboxgl.GeolocateControl({
+      positionOptions: {
+        enableHighAccuracy: true,
+      },
+      trackUserLocation: true,
+      showUserHeading: true,
+    })
+  );
+
+  //绘制点线面
+  const draw = new MapboxDraw({
+    displayControlsDefault: false,
+    controls: {
+      line_string: true,
+      point: true,
+      polygon: true,
+      trash: true,
+    },
+  });
+  map.addControl(draw);
+  mapStore.setMapConfig({ map });
 };
 
 onMounted(() => {
@@ -51,7 +71,9 @@ onMounted(() => {
 });
 </script>
 <template>
-  <div id="map"></div>
+  <div id="map">
+    <brp />
+  </div>
 </template>
 
 <style scoped>
