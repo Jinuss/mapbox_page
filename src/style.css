@@ -11,3 +11,12 @@ body,
 .mapboxgl-ctrl-logo {
   display: none !important; /*隐藏商标*/
 }
+
+:root {
+  --primary-color: #fff;
+  --primary-text-color: #333;
+  
+  --primary-svg-color: #262626;
+  --primary-svg-hover-color: #f2f2f2;
+  --primary-li-bottom-color: #eaeaea;
+}

@@ -8,6 +8,7 @@ import MapboxLanguage from "@mapbox/mapbox-gl-language";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import { useMapStore } from "../store";
 import brp from "./brp.vue";
+import tools from './tools.vue'
 
 // mapboxgl.accessToken =
 //   "pk.eyJ1IjoiamFrZWpvdWUiLCJhIjoiY2tyZnNlM2d1MG5tMDJ1cW5jaXN2MW02NyJ9.H6m2TZiZaAwet6HXv1TMvQ";
@@ -51,18 +52,7 @@ const initMap = () => {
       showUserHeading: true,
     })
   );
-
-  //绘制点线面
-  const draw = new MapboxDraw({
-    displayControlsDefault: false,
-    controls: {
-      line_string: true,
-      point: true,
-      polygon: true,
-      trash: true,
-    },
-  });
-  map.addControl(draw);
+  
   mapStore.setMapConfig({ map });
 };
 
@@ -73,6 +63,7 @@ onMounted(() => {
 <template>
   <div id="map">
     <brp />
+    <tools />
   </div>
 </template>
 
