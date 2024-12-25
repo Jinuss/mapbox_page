@@ -8,9 +8,20 @@ import { useMapStore } from "../store";
 import startImg from "../assets/起点.png";
 import endImg from "../assets/终点.png";
 import pointImg from "../assets/空心圆.png";
+import arrowImg from "../assets/上箭头.png";
+import {
+  calculateAngle as computeAngle,
+  createAngleSVG,
+  formatDistance,
+  formatArea,
+} from "../util";
+import {
+  DRAW_TOOL_TYPES,
+  TOOL_TO_MAPBOX_TYPES,
+  MAP_DRAW_EVENT_TYPE,
+} from "../const/index";
 
-import { DRAW_TOOL_TYPES, TOOL_TO_MAPBOX_TYPES } from "../const/index";
-
+const { CREATE, UPDATE } = MAP_DRAW_EVENT_TYPE;
 const { map } = storeToRefs(useMapStore());
 
 const active = ref("");
@@ -19,6 +30,9 @@ const modes = MapboxDraw.modes;
 
 const draw = new MapboxDraw({ modes });
 
+let globalData = {},
+  globalMarkers = {};
+
 watch(
   () => map.value,
   (mapInstance) => {
@@ -26,70 +40,251 @@ watch(
       draw.onAdd(mapInstance);
     }
 
-    mapInstance.on("draw.create", handleDraw);
-    mapInstance.on("draw.delete", handleDraw);
-    mapInstance.on("draw.update", handleDraw);
+    mapInstance.on(CREATE, handleDraw);
+    mapInstance.on(UPDATE, handleDraw);
   }
 );
 let timeStamp = new Date().getTime();
 const handleDraw = (event) => {
   const data = draw.getAll();
-  console.log("🚀 ~ handleDraw ~ data:", draw.getMode(), data);
-  console.log("🚀 ~ e:", event);
+  const { type, features, action } = event;
+  if (type == UPDATE && features.length) {
+    let modifyId = null;
+    if (
+      [
+        DRAW_TOOL_TYPES.MEASUREDISTANCE,
+        DRAW_TOOL_TYPES.MEASUREPOLYGON,
+      ].includes(active.value)
+    ) {
+      const { id } = features[0];
+      modifyId = id;
+    } else {
+      const { id } = features[0];
+      const a = Object.values(globalData)?.[0];
+
+      const tmp = a.filter((feature) => feature.id == id);
+      if (tmp && tmp.length) {
+        modifyId = tmp[0].properties.timeStamp;
+        globalData[modifyId] = globalData[modifyId].filter(
+          (feature) => feature.id != id
+        );
+      }
+    }
+
+    if (modifyId) {
+      //清除之前的marker
+      globalMarkers[modifyId].forEach((marker) => {
+        marker.remove();
+      });
+      globalMarkers[modifyId] = [];
+    }
+  }
   //测面积
   if (active.value == DRAW_TOOL_TYPES.MEASUREPOLYGON) {
     if (event.features && event.features.length) {
       handleArea(event.features[0]);
+      active.value = "";
     }
   }
   //测长度
   if (active.value == DRAW_TOOL_TYPES.MEASUREDISTANCE) {
     if (event.features && event.features.length) {
       handleLine(event.features[0]);
+      active.value = "";
     }
   }
+
   //量角
   if (active.value == DRAW_TOOL_TYPES.MEASUREANGLE) {
-    const data = draw.getAll();
-    const id = event.features[0].id;
-    event.features[0].properties.timeStamp = timeStamp;
-
-    data.features.forEach((element, index, array) => {
-      if (element.id == id) {
-        array[index].properties.timeStamp = timeStamp;
-      }
-    });
-
-    const features = data.features.filter((i) => i.properties.timeStamp == timeStamp);
-    console.log("🚀 ~ handleDraw ~ features:", features)
-    if (features.length != 3) {
-      // draw.changeMode('simple_select');
-      // draw.changeMode('draw_point');
-      setTimeout(function() {
-                draw.changeMode('draw_point');
-            }, 0); // 延迟切换，确保在绘制完成后进行
+    if (event.features && event.features.length) {
+      handleAngle(event.features[0]);
     }
-    console.log("🚀 ~ handleDraw ~ data:", data);
   }
+
+  //方位角
+  if (active.value == DRAW_TOOL_TYPES.AZIMUTH) {
+    if (event.features && event.features.length) {
+      handleAzimuth(event.features[0]);
+    }
+  }
+};
+
+const handleAzimuth = (feature) => {
+  const data = draw.getAll();
+  const { id } = feature;
+  data.features.forEach((element, index, array) => {
+    if (element.id == id) {
+      array[index].properties.timeStamp = timeStamp;
+      if (
+        globalData[timeStamp] &&
+        globalData[timeStamp].length &&
+        globalData[timeStamp].length < 2
+      ) {
+        globalData[timeStamp].push(element);
+      } else if (!globalData[timeStamp]) {
+        globalData[timeStamp] = [element];
+      }
+    }
+  });
+
+  if (globalData[timeStamp].length < 2) {
+    setTimeout(function () {
+      draw.changeMode("draw_point");
+    }, 0);
+  } else {
+    renderAzimuthAngle();
+    active.value = "";
+  }
+};
+
+const renderAzimuthAngle = () => {
+  globalMarkers[timeStamp] = [];
+  let coordinates = [];
+  for (let i = 0; i < globalData[timeStamp].length; i++) {
+    coordinates.push(globalData[timeStamp][i].geometry.coordinates);
+  }
+
+  const distance = calculateDistance(coordinates[0], coordinates[1]);
+
+  const northPoint = [coordinates[0][0], coordinates[0][1] + distance / 111139];
+
+  coordinates.unshift(northPoint);
+
+  for (let i = 0; i < coordinates.length; i++) {
+    globalMarkers[timeStamp].push(
+      new mapboxgl.Marker(createPointEl(i == 0 ? arrowImg : pointImg))
+        .setLngLat(coordinates[i])
+        .addTo(map.value)
+    );
+  }
+
+  globalMarkers[timeStamp].push(
+    new mapboxgl.Marker({
+      element: createLabelElement("正北方向"),
+    })
+      .setLngLat(coordinates[0])
+      .setOffset([0, -12])
+      .addTo(map.value)
+  );
+
+  const Angle = computeAngle({ points: coordinates });
+  const svgImg = createAngleSVG(Angle);
+  globalMarkers[timeStamp].push(
+    new mapboxgl.Marker(createImgEl(svgImg))
+      .setLngLat(coordinates[1])
+      .addTo(map.value)
+  );
+
+  if (draw.get(timeStamp)) {
+    draw.delete([timeStamp]);
+  }
+  draw.add({
+    id: timeStamp,
+    type: "Feature",
+    properties: {},
+    geometry: {
+      type: "LineString",
+      coordinates: coordinates,
+    },
+  });
+};
+
+const handleAngle = (feature) => {
+  const data = draw.getAll();
+  const { id } = feature;
+  data.features.forEach((element, index, array) => {
+    if (element.id == id) {
+      array[index].properties.timeStamp = timeStamp;
+      if (
+        globalData[timeStamp] &&
+        globalData[timeStamp].length &&
+        globalData[timeStamp].length < 3
+      ) {
+        globalData[timeStamp].push(element);
+      } else if (!globalData[timeStamp]) {
+        globalData[timeStamp] = [element];
+      }
+    }
+  });
+
+  if (globalData[timeStamp].length < 3) {
+    setTimeout(function () {
+      draw.changeMode("draw_point");
+    }, 0);
+  } else {
+    renderAngle();
+    active.value = "";
+  }
+};
+
+const createImgEl = (imgsrc) => {
+  const el = document.createElement("img");
+  el.className = "mapbox-tool-angle-img";
+  el.src = imgsrc;
+  el.style.width = `200px`;
+  el.style.height = `200px`;
+  return el;
+};
+
+const renderAngle = () => {
+  globalMarkers[timeStamp] = [];
+  let coordinates = [];
+  for (let i = 0; i < globalData[timeStamp].length; i++) {
+    let coordinate = globalData[timeStamp][i].geometry.coordinates;
+    coordinates.push(coordinate);
+    globalMarkers[timeStamp].push(
+      new mapboxgl.Marker(createPointEl(pointImg))
+        .setLngLat(coordinate)
+        .addTo(map.value)
+    );
+  }
+  const Angle = computeAngle({ points: coordinates });
+  const svgImg = createAngleSVG(Angle);
+  globalMarkers[timeStamp].push(
+    new mapboxgl.Marker(createImgEl(svgImg))
+      .setLngLat(coordinates[1])
+      .addTo(map.value)
+  );
+
+  if (draw.get(timeStamp)) {
+    draw.delete([timeStamp]);
+  }
+
+  draw.add({
+    id: timeStamp,
+    type: "Feature",
+    properties: {},
+    geometry: {
+      type: "LineString",
+      coordinates: coordinates,
+    },
+  });
 };
 
 const handleArea = (features) => {
   const {
     geometry: { coordinates },
+    id,
   } = features;
-  renderPointMarker(coordinates[0], true);
+  globalMarkers[id] = [];
+
+  renderPointMarker(coordinates[0], true, id);
 
   const poly = turf.polygon(coordinates);
   const center = turf.center(poly);
-  console.log("🚀 ~ handleArea ~ center:", center);
+
   const area = turf.area(features);
-  new mapboxgl.Marker({
-    element: createAreaLabelElement(area),
-  })
-    .setLngLat(center.geometry.coordinates)
-    .setOffset([0, -10])
-    .addTo(map.value);
+
+  globalMarkers[id].push(
+    new mapboxgl.Marker({
+      element: createLabelElement(formatArea(area)),
+    })
+      .setLngLat(center.geometry.coordinates)
+      // .setOffset([0, -10])
+      .addTo(map.value)
+  );
 };
+
 const createEl = (type = "start") => {
   const el = document.createElement("div");
   el.className = "mapbox-tool-marker";
@@ -104,29 +299,35 @@ const createEl = (type = "start") => {
 const handleLine = (features) => {
   const {
     geometry: { coordinates },
+    id,
   } = features;
   const el_start = createEl("start");
-  new mapboxgl.Marker(el_start)
-    .setLngLat(coordinates[0])
-    .setOffset([0, -14])
-    .addTo(map.value);
+  globalMarkers[id] = [];
+  globalMarkers[id].push(
+    new mapboxgl.Marker(el_start)
+      .setLngLat(coordinates[0])
+      .setOffset([0, -14])
+      .addTo(map.value)
+  );
 
   const el_end = createEl("end");
-  new mapboxgl.Marker(el_end)
-    .setLngLat(coordinates[coordinates.length - 1])
-    .setOffset([0, -14])
-    .addTo(map.value);
+  globalMarkers[id].push(
+    new mapboxgl.Marker(el_end)
+      .setLngLat(coordinates[coordinates.length - 1])
+      .setOffset([0, -14])
+      .addTo(map.value)
+  );
 
   if (coordinates.length > 2) {
-    renderPointMarker(coordinates, false);
+    renderPointMarker(coordinates, false, id);
   }
-  calculateAndDisplayDistances(coordinates);
+  calculateAndDisplayDistances(coordinates, id);
 };
 
-const createPointEl = () => {
+const createPointEl = (imgSrc) => {
   const el = document.createElement("div");
   el.className = "mapbox-tool-marker";
-  el.style.background = `url(${pointImg})`;
+  el.style.background = `url(${imgSrc})`;
   el.style.backgroundSize = "100%";
   el.style.width = `12px`;
   el.style.height = `12px`;
@@ -134,20 +335,17 @@ const createPointEl = () => {
   return el;
 };
 
-function renderPointMarker(coordinates, flag) {
-  console.log("🚀 ~ renderPointMarker ~ coordinates:", coordinates);
+function renderPointMarker(coordinates, flag, id) {
+  let i = 0;
   if (!flag) {
-    for (let i = 1; i < coordinates.length - 1; i++) {
-      new mapboxgl.Marker(createPointEl())
+    i = 1;
+  }
+  for (; i < coordinates.length - 1; i++) {
+    globalMarkers[id].push(
+      new mapboxgl.Marker(createPointEl(pointImg))
         .setLngLat(coordinates[i])
-        .addTo(map.value);
-    }
-  } else {
-    for (let i = 0; i < coordinates.length - 1; i++) {
-      new mapboxgl.Marker(createPointEl())
-        .setLngLat(coordinates[i])
-        .addTo(map.value);
-    }
+        .addTo(map.value)
+    );
   }
 }
 
@@ -162,7 +360,7 @@ function calculateDistance(start, end) {
   return turf.distance(from, to, { units: "meters" });
 }
 
-function calculateAndDisplayDistances(coordinates) {
+function calculateAndDisplayDistances(coordinates, id) {
   let totalDistance = 0;
   let distances = [];
 
@@ -178,22 +376,36 @@ function calculateAndDisplayDistances(coordinates) {
       end: end,
     });
 
-    addDistanceLabel(start, end, segmentDistance);
+    addDistanceLabel(start, end, segmentDistance, id);
+  }
+
+  //总长度
+  if (coordinates.length > 2) {
+    globalMarkers[id].push(
+      new mapboxgl.Marker({
+        element: createLabelElement(formatDistance(totalDistance)),
+      })
+        .setLngLat(coordinates[coordinates.length - 1])
+        .setOffset([0, 15])
+        .addTo(map.value)
+    );
   }
 }
 // 在每个线段的中点上添加距离文本
-function addDistanceLabel(start, end, segmentDistance) {
+function addDistanceLabel(start, end, segmentDistance, id) {
   const midPoint = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
 
   const angle = calculateAngle(start, end);
-
-  new mapboxgl.Marker({
-    element: createDistanceLabelElement(segmentDistance),
-  })
-    .setLngLat(midPoint)
-    .setRotation(angle)
-    .setOffset([0, -10])
-    .addTo(map.value);
+  const labelTxt = formatDistance(segmentDistance);
+  globalMarkers[id].push(
+    new mapboxgl.Marker({
+      element: createLabelElement(labelTxt),
+    })
+      .setLngLat(midPoint)
+      .setRotation(angle)
+      .setOffset([0, -10])
+      .addTo(map.value)
+  );
 }
 
 function calculateAngle(start, end) {
@@ -215,32 +427,33 @@ function calculateAngle(start, end) {
   return 360 - degrees;
 }
 
-// 创建一个显示距离的文本元素
-function createDistanceLabelElement(segmentDistance) {
+// 创建文本元素
+function createLabelElement(txt) {
   const label = document.createElement("div");
   label.style.fontSize = "12px";
   label.style.color = "#333";
   label.style.textAlign = "center";
-  label.textContent = `${segmentDistance.toFixed(2)} m`;
-
-  return label;
-}
-
-function createAreaLabelElement(segmentDistance) {
-  const label = document.createElement("div");
-  label.style.fontSize = "12px";
-  label.style.color = "#333";
-  label.style.textAlign = "center";
-  label.textContent = `${segmentDistance.toFixed(2)} m^2`;
+  label.style.textShadow= "2px 2px 5px white";
+  label.textContent = `${txt}`;
 
   return label;
 }
 
 const handleClickOpIcon = (type: string) => {
-  timeStamp = new Date().getTime();
   active.value = type;
+  timeStamp = new Date().getTime();
   const mode = TOOL_TO_MAPBOX_TYPES[type];
-  draw.changeMode(mode);
+  if (mode) {
+    draw.changeMode(mode);
+  } else {
+    draw.deleteAll();
+    active.value = "";
+    globalData = {};
+    timeStamp = undefined;
+    for (let id in globalMarkers) {
+      globalMarkers[id].forEach((marker) => marker.remove());
+    }
+  }
 };
 
 const List = [
@@ -263,6 +476,11 @@ const List = [
     text: "方位角",
     icon: "#icon-azimuth",
     type: DRAW_TOOL_TYPES.AZIMUTH,
+  },
+  {
+    text: "清除",
+    icon: "#icon-delete",
+    type: DRAW_TOOL_TYPES.CLEAR,
   },
 ];
 </script>
