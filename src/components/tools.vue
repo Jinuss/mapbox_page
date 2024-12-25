@@ -152,7 +152,7 @@ const renderAzimuthAngle = () => {
 
   for (let i = 0; i < coordinates.length; i++) {
     globalMarkers[timeStamp].push(
-      new mapboxgl.Marker(createPointEl(i == 0 ? arrowImg : pointImg))
+      new mapboxgl.Marker(createPointEl(i == 0 ? arrowImg : pointImg,i==0))
         .setLngLat(coordinates[i])
         .addTo(map.value)
     );
@@ -324,12 +324,12 @@ const handleLine = (features) => {
   calculateAndDisplayDistances(coordinates, id);
 };
 
-const createPointEl = (imgSrc) => {
+const createPointEl = (imgSrc, size) => {
   const el = document.createElement("div");
   el.className = "mapbox-tool-marker";
   el.style.background = `url(${imgSrc})`;
   el.style.backgroundSize = "100%";
-  el.style.width = `12px`;
+  el.style.width = size ? "24px" : `12px`;
   el.style.height = `12px`;
   el.style.display = "block";
   return el;
@@ -433,7 +433,7 @@ function createLabelElement(txt) {
   label.style.fontSize = "12px";
   label.style.color = "#333";
   label.style.textAlign = "center";
-  label.style.textShadow= "2px 2px 5px white";
+  label.style.textShadow = "2px 2px 5px white";
   label.textContent = `${txt}`;
 
   return label;
